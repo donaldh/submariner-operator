@@ -34,7 +34,6 @@ import (
 	cmdVersion "github.com/submariner-io/submariner-operator/pkg/subctl/cmd/version"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 
 	"github.com/submariner-io/submariner-operator/pkg/broker"
@@ -86,7 +85,7 @@ var (
 
 func init() {
 	addJoinFlags(joinCmd)
-	AddKubeContextFlag(joinCmd)
+	restConfigProducer.AddKubeContextFlag(joinCmd)
 	rootCmd.AddCommand(joinCmd)
 }
 
@@ -156,8 +155,7 @@ var joinCmd = &cobra.Command{
 		utils.ExitOnError("Error connecting to broker cluster", err)
 		err = isValidCustomCoreDNSConfig()
 		utils.ExitOnError("Invalid Custom CoreDNS configuration", err)
-		config := restconfig.ClientConfig(kubeConfig, kubeContext)
-		joinSubmarinerCluster(config, kubeContext, subctlData)
+		joinSubmarinerCluster(subctlData)
 	},
 }
 
@@ -170,15 +168,13 @@ func checkArgumentPassed(args []string) error {
 
 var status = cli.NewStatus()
 
-func joinSubmarinerCluster(config clientcmd.ClientConfig, contextName string, subctlData *datafile.SubctlData) {
+func joinSubmarinerCluster(subctlData *datafile.SubctlData) {
 	// Missing information
 	var qs = []*survey.Question{}
 
 	if clusterID == "" {
-		rawConfig, err := config.RawConfig()
-		// This will be fatal later, no point in continuing
+		clusterName, err := restConfigProducer.ClusterNameFromContext()
 		utils.ExitOnError("Error connecting to the target cluster", err)
-		clusterName := restconfig.ClusterNameFromContext(rawConfig, contextName)
 		if clusterName != nil {
 			clusterID = *clusterName
 		}
@@ -225,7 +221,7 @@ func joinSubmarinerCluster(config clientcmd.ClientConfig, contextName string, su
 		}
 	}
 
-	clientConfig, err := config.ClientConfig()
+	clientConfig, err := restConfigProducer.ClientConfig().ClientConfig()
 	utils.ExitOnError("Error connecting to the target cluster", err)
 
 	_, failedRequirements, err := cmdVersion.CheckRequirements(clientConfig)

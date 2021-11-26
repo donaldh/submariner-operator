@@ -46,6 +46,7 @@ var (
 	gatherModule         string
 	directory            string
 	includeSensitiveData bool
+	restConfigProducer   = restconfig.NewProducer()
 )
 
 const (
@@ -73,7 +74,7 @@ var gatherFuncs = map[string]func(string, Info) bool{
 }
 
 func init() {
-	cmd.AddKubeContextMultiFlag(gatherCmd, "")
+	restConfigProducer.AddKubeContextMultiFlag(gatherCmd, "")
 	addGatherFlags(gatherCmd)
 	cmd.AddToRootCommand(gatherCmd)
 }

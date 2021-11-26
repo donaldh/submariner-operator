@@ -28,7 +28,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 
+	"github.com/spf13/cobra"
 	"github.com/submariner-io/admiral/pkg/resource"
+	"github.com/submariner-io/admiral/pkg/stringset"
+	"github.com/submariner-io/shipyard/test/e2e/framework"
 	subv1 "github.com/submariner-io/submariner/pkg/apis/submariner.io/v1"
 
 	"github.com/submariner-io/submariner-operator/api/submariner/v1alpha1"
@@ -40,24 +43,82 @@ type RestConfig struct {
 	ClusterName string
 }
 
-func MustGetForClusters(kubeConfigPath string, kubeContexts []string) []RestConfig {
-	configs, err := ForClusters(kubeConfigPath, kubeContexts)
+type Producer struct {
+	kubeConfig   string
+	kubeContext  string
+	kubeContexts []string
+}
+
+func NewProducer() Producer {
+	return Producer{}
+}
+
+func NewProducerFrom(kubeConfig, kubeContext string) Producer {
+	return Producer{
+		kubeConfig:  kubeConfig,
+		kubeContext: kubeContext,
+	}
+}
+
+func (rcp *Producer) AddKubeConfigFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVar(&rcp.kubeConfig, "kubeconfig", "", "absolute path(s) to the kubeconfig file(s)")
+}
+
+// AddKubeContextFlag adds a "kubeconfig" flag and a single "kubecontext" flag that can be used once and only once
+func (rcp *Producer) AddKubeContextFlag(cmd *cobra.Command) {
+	rcp.AddKubeConfigFlag(cmd)
+	cmd.PersistentFlags().StringVar(&rcp.kubeContext, "kubecontext", "", "kubeconfig context to use")
+}
+
+// AddKubeContextMultiFlag adds a "kubeconfig" flag and a "kubecontext" flag that can be specified multiple times (or comma separated)
+func (rcp *Producer) AddKubeContextMultiFlag(cmd *cobra.Command, usage string) {
+	rcp.AddKubeConfigFlag(cmd)
+	if usage == "" {
+		usage = "comma-separated list of kubeconfig contexts to use, can be specified multiple times.\n" +
+			"If none specified, all contexts referenced by the kubeconfig are used"
+	}
+
+	cmd.PersistentFlags().StringSliceVar(&rcp.kubeContexts, "kubecontexts", nil, usage)
+}
+
+func (rcp *Producer) PopulateTestFramework() {
+	framework.TestContext.KubeContexts = rcp.kubeContexts
+	if rcp.kubeConfig != "" {
+		framework.TestContext.KubeConfig = rcp.kubeConfig
+	}
+}
+
+func (rcp *Producer) MustGetForClusters() []RestConfig {
+	configs, err := rcp.ForClusters()
 	utils.ExitOnError("Error getting REST Config for cluster", err)
 
 	return configs
 }
 
-func ForClusters(kubeConfigPath string, kubeContexts []string) ([]RestConfig, error) {
+func (rcp *Producer) CountRequestedClusters() int {
+	if len(rcp.kubeContexts) > 0 {
+		// Count unique contexts
+		contexts := stringset.New()
+		for i := range rcp.kubeContexts {
+			contexts.Add(rcp.kubeContexts[i])
+		}
+		return contexts.Size()
+	}
+	// Current context or rcp.kubeContext
+	return 1
+}
+
+func (rcp *Producer) ForClusters() ([]RestConfig, error) {
 	var restConfigs []RestConfig
 
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	overrides := &clientcmd.ConfigOverrides{ClusterDefaults: clientcmd.ClusterDefaults}
-	rules.ExplicitPath = kubeConfigPath
+	rules.ExplicitPath = rcp.kubeConfig
 
 	contexts := []string{}
-	if len(kubeContexts) > 0 {
-		contexts = append(contexts, kubeContexts...)
+	if len(rcp.kubeContexts) > 0 {
+		contexts = append(contexts, rcp.kubeContexts...)
 	} else {
 		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
 		rawConfig, err := kubeConfig.RawConfig()
@@ -126,7 +187,7 @@ func clientConfigAndClusterName(rules *clientcmd.ClientConfigLoadingRules, overr
 		return RestConfig{}, err
 	}
 
-	clusterName := ClusterNameFromContext(raw, overrides.CurrentContext)
+	clusterName := clusterNameFromContext(raw, overrides.CurrentContext)
 
 	if clusterName == nil {
 		return RestConfig{}, fmt.Errorf("could not obtain the cluster name from kube config: %#v", raw)
@@ -147,7 +208,15 @@ func Clients(config *rest.Config) (dynamic.Interface, kubernetes.Interface, erro
 	return dynClient, clientSet, nil
 }
 
-func ClusterNameFromContext(rawConfig api.Config, overridesContext string) *string {
+func (rcp *Producer) ClusterNameFromContext() (*string, error) {
+	rawConfig, err := rcp.ClientConfig().RawConfig()
+	if err != nil {
+		return nil, err
+	}
+	return clusterNameFromContext(rawConfig, rcp.kubeContext), nil
+}
+
+func clusterNameFromContext(rawConfig api.Config, overridesContext string) *string {
 	if overridesContext == "" {
 		// No context provided, use the current context
 		overridesContext = rawConfig.CurrentContext
@@ -159,19 +228,19 @@ func ClusterNameFromContext(rawConfig api.Config, overridesContext string) *stri
 	return &configContext.Cluster
 }
 
-func ForCluster(kubeConfigPath, kubeContext string) (*rest.Config, error) {
-	return ClientConfig(kubeConfigPath, kubeContext).ClientConfig()
+func (rcp *Producer) ForCluster() (*rest.Config, error) {
+	return rcp.ClientConfig().ClientConfig()
 }
 
 // ClientConfig returns a clientcmd.ClientConfig to use when communicating with K8s
-func ClientConfig(kubeConfigPath, kubeContext string) clientcmd.ClientConfig {
+func (rcp *Producer) ClientConfig() clientcmd.ClientConfig {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	rules.ExplicitPath = kubeConfigPath
+	rules.ExplicitPath = rcp.kubeConfig
 
 	rules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	overrides := &clientcmd.ConfigOverrides{ClusterDefaults: clientcmd.ClusterDefaults}
-	if kubeContext != "" {
-		overrides.CurrentContext = kubeContext
+	if rcp.kubeContext != "" {
+		overrides.CurrentContext = rcp.kubeContext
 	}
 
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)

@@ -28,7 +28,6 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/coreos/go-semver/semver"
 	"github.com/spf13/cobra"
-	"github.com/submariner-io/submariner-operator/pkg/subctl/cmd/cloud"
 	"github.com/submariner-io/submariner-operator/pkg/subctl/cmd/utils"
 	"github.com/submariner-io/submariner-operator/pkg/subctl/cmd/utils/restconfig"
 	cmdversion "github.com/submariner-io/submariner-operator/pkg/subctl/cmd/version"
@@ -44,13 +43,11 @@ import (
 )
 
 var (
-	kubeConfig   string
-	kubeContext  string
-	kubeContexts []string
-	rootCmd      = &cobra.Command{
+	rootCmd = &cobra.Command{
 		Use:   "subctl",
 		Short: "An installer for Submariner",
 	}
+	restConfigProducer = restconfig.NewProducer()
 )
 
 const SubmMissingMessage = "Submariner is not installed"
@@ -61,34 +58,10 @@ func Execute() error {
 
 func init() {
 	rootCmd.AddCommand(cmdversion.Cmd)
-	cloudCmd := cloud.NewCommand(&kubeConfig, &kubeContext)
-	AddKubeContextFlag(cloudCmd)
-	rootCmd.AddCommand(cloudCmd)
 }
 
 func AddToRootCommand(cmd *cobra.Command) {
 	rootCmd.AddCommand(cmd)
-}
-
-func AddKubeConfigFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&kubeConfig, "kubeconfig", "", "absolute path(s) to the kubeconfig file(s)")
-}
-
-// AddKubeContextFlag adds a "kubeconfig" flag and a single "kubecontext" flag that can be used once and only once
-func AddKubeContextFlag(cmd *cobra.Command) {
-	AddKubeConfigFlag(cmd)
-	cmd.PersistentFlags().StringVar(&kubeContext, "kubecontext", "", "kubeconfig context to use")
-}
-
-// AddKubeContextMultiFlag adds a "kubeconfig" flag and a "kubecontext" flag that can be specified multiple times (or comma separated)
-func AddKubeContextMultiFlag(cmd *cobra.Command, usage string) {
-	AddKubeConfigFlag(cmd)
-	if usage == "" {
-		usage = "comma-separated list of kubeconfig contexts to use, can be specified multiple times.\n" +
-			"If none specified, all contexts referenced by the kubeconfig are used"
-	}
-
-	cmd.PersistentFlags().StringSliceVar(&kubeContexts, "kubecontexts", nil, usage)
 }
 
 const (
@@ -212,7 +185,7 @@ var nodeLabelBackoff wait.Backoff = wait.Backoff{
 }
 
 func CheckVersionMismatch(cmd *cobra.Command, args []string) error {
-	config, err := restconfig.ForCluster(kubeConfig, kubeContext)
+	config, err := restConfigProducer.ForCluster()
 	utils.ExitOnError("The provided kubeconfig is invalid", err)
 
 	submariner := getSubmarinerResource(config)

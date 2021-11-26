@@ -28,9 +28,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func RunOnK8sCluster(kubeConfig, kubeContext string,
+func RunOnK8sCluster(restConfigProducer restconfig.Producer,
 	function func(gwDeployer api.GatewayDeployer, reporter api.Reporter) error) error {
-	k8sConfig, err := restconfig.ForCluster(kubeConfig, kubeContext)
+	k8sConfig, err := restConfigProducer.ForCluster()
 	utils.ExitOnError("Failed to initialize a Kubernetes config", err)
 
 	clientSet, err := kubernetes.NewForConfig(k8sConfig)

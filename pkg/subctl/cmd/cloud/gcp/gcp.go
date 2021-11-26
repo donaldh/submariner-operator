@@ -77,7 +77,7 @@ func AddGCPFlags(command *cobra.Command) {
 
 // RunOnGCP runs the given function on GCP, supplying it with a cloud instance connected to GCP and a reporter that writes to CLI.
 // The functions makes sure that infraID and region are specified, and extracts the credentials from a secret in order to connect to GCP.
-func RunOnGCP(gwInstanceType, kubeConfig, kubeContext string, dedicatedGWNodes bool,
+func RunOnGCP(restConfigProducer restconfig.Producer, gwInstanceType string, dedicatedGWNodes bool,
 	function func(cloud api.Cloud, gwDeployer api.GatewayDeployer, reporter api.Reporter) error) error {
 	if ocpMetadataFile != "" {
 		err := initializeFlagsFromOCPMetadata(ocpMetadataFile)
@@ -104,7 +104,7 @@ func RunOnGCP(gwInstanceType, kubeConfig, kubeContext string, dedicatedGWNodes b
 	gcpClient, err := gcpClientIface.NewClient(projectID, options)
 	utils.ExitOnError("Failed to initialize a GCP Client", err)
 
-	k8sConfig, err := restconfig.ForCluster(kubeConfig, kubeContext)
+	k8sConfig, err := restConfigProducer.ForCluster()
 	utils.ExitOnError("Failed to initialize a Kubernetes config", err)
 
 	clientSet, err := kubernetes.NewForConfig(k8sConfig)

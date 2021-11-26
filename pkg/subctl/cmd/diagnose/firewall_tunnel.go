@@ -67,10 +67,12 @@ func init() {
 }
 
 func validateTunnelConfig(command *cobra.Command, args []string) {
-	localCfg, err := restconfig.ForCluster(args[0], "")
+	localProducer := restconfig.NewProducerFrom(args[0], "")
+	localCfg, err := localProducer.ForCluster()
 	utils.ExitOnError("The provided local kubeconfig is invalid", err)
 
-	remoteCfg, err := restconfig.ForCluster(args[1], "")
+	remoteProducer := restconfig.NewProducerFrom(args[1], "")
+	remoteCfg, err := remoteProducer.ForCluster()
 	utils.ExitOnError("The provided remote kubeconfig is invalid", err)
 
 	if !validateTunnelConfigAcrossClusters(localCfg, remoteCfg) {

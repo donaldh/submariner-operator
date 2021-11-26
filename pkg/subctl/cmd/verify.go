@@ -59,7 +59,7 @@ var (
 )
 
 func init() {
-	AddKubeContextMultiFlag(verifyCmd, "comma-separated list of exactly two kubeconfig contexts to use.")
+	restConfigProducer.AddKubeContextMultiFlag(verifyCmd, "comma-separated list of exactly two kubeconfig contexts to use.")
 	verifyCmd.Flags().StringVar(&verifyOnly, "only", strings.Join(getAllVerifyKeys(), ","), "comma separated verifications to be performed")
 	verifyCmd.Flags().BoolVar(&disruptiveTests, "disruptive-tests", false, "enable disruptive verifications like gateway-failover")
 	addVerifyFlags(verifyCmd)
@@ -179,13 +179,15 @@ func configureTestingFramework(args []string) error {
 
 		// Read the cluster names from the given kubeconfigs
 		for _, config := range args {
-			framework.TestContext.ClusterIDs = append(framework.TestContext.ClusterIDs, clusterNameFromConfig(config, ""))
+			rcp := restconfig.NewProducerFrom(config, "")
+			clusterName, err := rcp.ClusterNameFromContext()
+			if err != nil {
+				return nil
+			}
+			framework.TestContext.ClusterIDs = append(framework.TestContext.ClusterIDs, *clusterName)
 		}
 	} else {
-		framework.TestContext.KubeContexts = kubeContexts
-		if kubeConfig != "" {
-			framework.TestContext.KubeConfig = kubeConfig
-		}
+		restConfigProducer.PopulateTestFramework()
 	}
 	framework.TestContext.OperationTimeout = operationTimeout
 	framework.TestContext.ConnectionTimeout = connectionTimeout
@@ -200,20 +202,8 @@ func configureTestingFramework(args []string) error {
 	return nil
 }
 
-func clusterNameFromConfig(kubeConfigPath, kubeContext string) string {
-	rawConfig, err := restconfig.ClientConfig(kubeConfigPath, "").RawConfig()
-	utils.ExitOnError(fmt.Sprintf("Error obtaining the kube config for path %q", kubeConfigPath), err)
-	cluster := restconfig.ClusterNameFromContext(rawConfig, kubeContext)
-
-	if cluster == nil {
-		utils.ExitWithErrorMsg(fmt.Sprintf("Could not obtain the cluster name from kube config: %#v", rawConfig))
-	}
-
-	return *cluster
-}
-
 func checkValidateArguments(args []string) error {
-	if len(args) != 2 && len(kubeContexts) != 2 {
+	if len(args) != 2 && restConfigProducer.CountRequestedClusters() != 2 {
 		return fmt.Errorf("two kubecontexts must be specified")
 	}
 	if len(args) == 2 {
@@ -227,8 +217,6 @@ func checkValidateArguments(args []string) error {
 		if same {
 			return fmt.Errorf("kubeconfig file <kubeConfig1> and <kubeConfig2> need to have a unique content")
 		}
-	} else if strings.Compare(kubeContexts[0], kubeContexts[1]) == 0 {
-		return fmt.Errorf("the two kubecontexts must be different")
 	}
 
 	if connectionAttempts < 1 {

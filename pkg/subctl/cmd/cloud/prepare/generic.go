@@ -39,7 +39,8 @@ func newGenericPrepareCommand() *cobra.Command {
 }
 
 func prepareGenericCluster(cmd *cobra.Command, args []string) {
-	err := generic.RunOnK8sCluster(*kubeConfig, *kubeContext,
+	err := generic.RunOnK8sCluster(
+		*parentRestConfigProducer,
 		func(gwDeployer api.GatewayDeployer, reporter api.Reporter) error {
 			if gateways > 0 {
 				gwInput := api.GatewayDeployInput{
